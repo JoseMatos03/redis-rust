@@ -6,7 +6,6 @@ fn main() -> std::io::Result<()> {
     listener.set_nonblocking(true)?;
     println!("Listening on 127.0.0.1:6379");
 
-    // store clients in a vector
     let mut clients: Vec<TcpStream> = Vec::new();
     
     loop {
@@ -34,20 +33,37 @@ fn main() -> std::io::Result<()> {
 
             // read data from the client
             match client.read(&mut buf) {
-                Ok(0) => {
-                    // Client disconnected
+                Ok(0) => { // Client disconnected
                     println!("Client disconnected: {}", client.peer_addr().unwrap());
                     clients.swap_remove(i);
                     continue;
                 }
-                Ok(n) => {
-                    // Process the data received from the client
-                    println!("Received {} bytes from client: {}", n, client.peer_addr().unwrap());
+                Ok(n) => { // Client sent data
+                    let data = &buf[..n];
 
-                    // Echo back the data to the client
-                    if let Err(e) = client.write_all(b"+PONG\r\n") {
-                        eprintln!("write err: {}", e);
-                        continue;
+                    if data.starts_with(b"PING") {
+                        println!("Received PING command from client: {}", client.peer_addr().unwrap());
+                        
+                        if let Err(e) = client.write_all(b"+PONG\r\n") {
+                            eprintln!("Error writing to client: {}", e);
+                            clients.swap_remove(i);
+                            continue;
+                        }
+                    } else if data.starts_with(b"ECHO") {
+                        println!("Received ECHO command from client: {}", client.peer_addr().unwrap());
+                        let echo_content = data[4..].iter() // Remove "ECHO"
+                            .skip_while(|&&b| b == b' ' || b == b'\r' || b == b'\n') // Skip leading whitespace
+                            .cloned()
+                            .collect::<Vec<u8>>();
+                        let response = format!("${}\r\n{}\r\n", echo_content.len(), String::from_utf8_lossy(&echo_content));
+
+                        if let Err(e) = client.write_all(response.as_bytes()) {
+                            eprintln!("Error writing to client: {}", e);
+                            clients.swap_remove(i);
+                            continue;
+                        }
+                    } else {
+                        println!("Received unknown command from client: {}", client.peer_addr().unwrap());
                     }
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
