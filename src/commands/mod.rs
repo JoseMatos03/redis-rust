@@ -1,10 +1,5 @@
 use crate::resp::Frame;
-use once_cell::sync::Lazy;
-use std::collections::HashMap;
-use tokio::sync::RwLock;
 mod default;
-
-static KV: Lazy<RwLock<HashMap<String, Vec<u8>>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 
 pub async fn dispatch(frame: Frame) -> Vec<u8> {
     match frame {
@@ -15,8 +10,8 @@ pub async fn dispatch(frame: Frame) -> Vec<u8> {
                 match cmd_str.as_str() {
                     "ping" => default::ping(v).await,
                     "echo" => default::echo(v).await,
-                    "set" => default::set(v, &KV).await,
-                    "get" => default::get(v, &KV).await,
+                    "set" => default::set(v).await,
+                    "get" => default::get(v).await,
                     _ => default::unknown().await,
                 }
             } else {
