@@ -21,9 +21,10 @@ Make sure you have `cargo` installed (tested with `cargo 1.88` or later).
 ## What's Implemented
 
 - [x] RESP parsing
-- [x] Basic command handling (`PING`, `SET`, `GET`)
-- [ ] Expiry support
-- [ ] Command persistence
+- [x] Basic command handling (`PING`, `ECHO`, `SET`, `GET`)
+- [x] Expiry support
+- [x] RDB configuration
+- [ ] RDB persistence
 
 More features will be added as I progress through the challenge.
 

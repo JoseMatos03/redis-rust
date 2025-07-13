@@ -50,6 +50,7 @@ pub async fn get(key: Vec<u8>) -> Vec<u8> {
     if let Some(expiry) = EXP.read().await.get(&*k) {
         if Instant::now() > *expiry {
             // Do not remove here, just return null bulk string
+            // It will be purged later by the server background task
             return Frame::BulkString(None).encode();
         }
     }

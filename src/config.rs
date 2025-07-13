@@ -1,6 +1,7 @@
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use std::env;
 use std::path::PathBuf;
+use std::sync::RwLock;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -16,9 +17,7 @@ impl Default for Config {
     }
 }
 
-lazy_static! {
-    static ref CONFIG: std::sync::RwLock<Config> = std::sync::RwLock::new(Config::default());
-}
+static CONFIG: Lazy<RwLock<Config>> = Lazy::new(|| RwLock::new(Config::default()));
 
 pub fn get_config() -> Config {
     CONFIG.read().unwrap().clone()
