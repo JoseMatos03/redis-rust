@@ -23,9 +23,17 @@ pub fn get_config() -> Config {
     CONFIG.read().unwrap().clone()
 }
 
+pub fn get_dir() -> PathBuf {
+    CONFIG.read().unwrap().dir.clone()
+}
+
 pub fn set_dir<P: Into<PathBuf>>(path: P) {
     let mut config = CONFIG.write().unwrap();
     config.dir = path.into();
+}
+
+pub fn get_dbfilename() -> String {
+    CONFIG.read().unwrap().dbfilename.clone()
 }
 
 pub fn set_dbfilename<S: Into<String>>(filename: S) {

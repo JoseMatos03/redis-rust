@@ -7,6 +7,8 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.59"                                   # error handling
 bytes = "1.3.0"                                     # helps manage buffers
+crc64 = "2.0.0"
+glob = "0.3.2"
 once_cell = "1.21.3"
 thiserror = "1.0.32"                                # error handling
 tokio = { version = "1.23.0", features = ["full"] } # async networking

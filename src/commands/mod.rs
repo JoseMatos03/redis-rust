@@ -14,6 +14,8 @@ pub async fn dispatch(frame: Frame) -> Vec<u8> {
                     "echo" => default::echo(v).await,
                     "set" => default::set(v).await,
                     "get" => default::get(v).await,
+                    "save" => default::save(v).await,
+                    "keys" => default::keys(v).await,
                     "config" => {
                         if v.is_empty() {
                             return default::error("ERR wrong number of arguments for 'config'")

@@ -1,5 +1,6 @@
 use crate::config;
 use crate::db;
+use crate::rdb;
 use crate::resp::Frame;
 
 /// Ping command just returns "PONG" as a simple string.
@@ -115,8 +116,7 @@ pub async fn set(args: Vec<Frame>) -> Vec<u8> {
 
     // Delegate to db::set with options
     match db::set(key, value, ex, px, nx, xx).await {
-        Ok(Some(resp)) => resp,
-        Ok(None) => Frame::BulkString(None).encode(), // for NX/XX when not set
+        Ok(()) => Frame::SimpleString("OK".into()).encode(),
         Err(e) => Frame::Error(format!("ERR {}", e)).encode(),
     }
 }
@@ -132,6 +132,39 @@ pub async fn get(args: Vec<Frame>) -> Vec<u8> {
         _ => return Frame::Error("ERR invalid key for 'get'".into()).encode(),
     };
     db::get(key).await
+}
+
+/// KEYS command returns all the keys that match a given pattern, as a RESP array.
+/// It expects the pattern as a single argument.
+pub async fn keys(args: Vec<Frame>) -> Vec<u8> {
+    if args.len() != 1 {
+        return Frame::Error("ERR wrong number of arguments for 'keys'".into()).encode();
+    }
+    let pattern = match &args[0] {
+        Frame::BulkString(Some(bs)) => String::from_utf8_lossy(bs).to_string(),
+        _ => return Frame::Error("ERR invalid pattern for 'keys'".into()).encode(),
+    };
+
+    let keys = db::get_keys_matching_pattern(&pattern).await;
+    let resp = Frame::Array(Some(
+        keys.into_iter()
+            .map(|k| Frame::BulkString(Some(k.into_bytes())))
+            .collect(),
+    ));
+    resp.encode()
+}
+
+/// SAVE command synchronously saves the dataset to disk.
+/// It expects no arguments.
+pub async fn save(args: Vec<Frame>) -> Vec<u8> {
+    if !args.is_empty() {
+        return Frame::Error("ERR wrong number of arguments for 'save'".into()).encode();
+    }
+
+    match rdb::save().await {
+        Ok(()) => Frame::SimpleString("OK".into()).encode(),
+        Err(e) => Frame::Error(format!("ERR {}", e)).encode(),
+    }
 }
 
 /// CONFIG GET command returns config values as RESP array
