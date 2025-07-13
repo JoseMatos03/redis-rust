@@ -1,7 +1,6 @@
 use crate::model::redis_value::RedisValue;
 use crate::rdb::RdbDatabase;
 use crate::resp::types::Frame;
-use glob::Pattern;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
@@ -149,23 +148,8 @@ pub async fn get(key: Vec<u8>) -> Vec<u8> {
 /// Get all keys matching a  glob-style pattern
 pub async fn get_keys_matching_pattern(pattern: &str) -> Vec<String> {
     let kv = KV.read().await;
-
-    // Handle the special case of "*" pattern for efficiency
-    if pattern == "*" {
-        return kv.keys().cloned().collect();
-    }
-
-    // Try to compile the pattern first
-    let compiled_pattern = match Pattern::new(pattern) {
-        Ok(p) => p,
-        Err(_) => {
-            // If pattern compilation fails, return empty result
-            return Vec::new();
-        }
-    };
-
     kv.keys()
-        .filter(|k| compiled_pattern.matches(k))
+        .filter(|k| glob::Pattern::new(pattern).map_or(false, |p| p.matches(k)))
         .cloned()
         .collect()
 }
