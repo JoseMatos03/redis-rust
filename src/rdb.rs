@@ -46,8 +46,7 @@ impl RdbParser {
 
         let mut version = [0u8; 4];
         reader.read_exact(&mut version)?;
-        dbg!(&version);
-        if version != [0, 0, 0, 11] {
+        if version != [48, 48, 49, 49] {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Unsupported RDB version",
