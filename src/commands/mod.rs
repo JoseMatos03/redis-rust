@@ -1,6 +1,8 @@
 use crate::resp::Frame;
 mod default;
 
+/// Dispatch function to handle commands based on the RESP protocol.
+/// It expects a command in the form of an array where the first element is the command name.
 pub async fn dispatch(frame: Frame) -> Vec<u8> {
     match frame {
         Frame::Array(Some(mut v)) if !v.is_empty() => {

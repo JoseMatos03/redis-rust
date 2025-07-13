@@ -4,6 +4,8 @@ use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
+/// Start the Redis server on the specified address
+/// This function listens for incoming connections and spawns a handler for each client.
 pub async fn start(addr: &str) -> Result<(), Box<dyn Error>> {
     let listener = TcpListener::bind(addr).await?;
     println!("Listening on {}", addr);
@@ -14,6 +16,9 @@ pub async fn start(addr: &str) -> Result<(), Box<dyn Error>> {
     }
 }
 
+/// Handle a single client connection
+/// This function reads commands from the client, processes them, and sends responses back.
+/// It runs in its own task to allow multiple clients to be handled concurrently.
 async fn handle(mut socket: TcpStream, peer: SocketAddr) {
     use crate::resp::parser::FrameParser;
     let mut parser = FrameParser::new();

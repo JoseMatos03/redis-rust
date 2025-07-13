@@ -1,13 +1,16 @@
 use crate::db;
 use crate::resp::Frame;
 
+/// Ping command just returns "PONG" as a simple string.
 pub async fn ping(_args: Vec<Frame>) -> Vec<u8> {
     Frame::SimpleString("PONG".into()).encode()
 }
 
+/// Echo command returns the same bulk string passed to it
+/// If the argument is not a bulk string or if the number of arguments is not 1
+/// it returns an error.
 pub async fn echo(args: Vec<Frame>) -> Vec<u8> {
     if args.len() != 1 {
-        // wrong arg count
         return Frame::Error("ERR wrong number of arguments for 'echo'".into()).encode();
     }
     match &args[0] {
