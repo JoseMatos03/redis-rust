@@ -137,26 +137,45 @@ pub async fn get(args: Vec<Frame>) -> Vec<u8> {
 /// KEYS command returns all the keys that match a given pattern, as a RESP array.
 /// It expects the pattern as a single argument.
 pub async fn keys(args: Vec<Frame>) -> Vec<u8> {
-    if args.len() != 1 {
+    // Debug logging - check what we're actually getting
+    println!("DEBUG: args.len() = {}", args.len());
+    if args.len() > 0 {
+        println!("DEBUG: args[0] = {:?}", args[0]);
+    }
+    if args.len() > 1 {
+        println!("DEBUG: args[1] = {:?}", args[1]);
+    }
+
+    // Handle both cases: quoted pattern (len=1) and shell-expanded pattern (len>1)
+    if args.len() == 0 {
         return Frame::Error("ERR wrong number of arguments for 'keys' command".into()).encode();
     }
 
-    let pattern = match &args[0] {
-        Frame::BulkString(Some(bs)) => String::from_utf8_lossy(bs).to_string(),
-        Frame::BulkString(None) => {
-            return Frame::Error("ERR invalid pattern for 'keys' command".into()).encode()
-        }
-        Frame::SimpleString(s) => s.clone(),
-        // Handle the case where * might be parsed as a different frame type
-        Frame::Array(_) => {
-            return Frame::Error("ERR invalid pattern type for 'keys' command".into()).encode()
-        }
-        _ => {
-            return Frame::Error("ERR invalid pattern for 'keys' command".into()).encode();
-        }
+    let keys = if args.len() == 1 {
+        // Normal case: KEYS "*" - we have a pattern to match against
+        let pattern = match &args[0] {
+            Frame::BulkString(Some(bs)) => String::from_utf8_lossy(bs).to_string(),
+            Frame::BulkString(None) => {
+                return Frame::Error("ERR invalid pattern for 'keys' command".into()).encode()
+            }
+            Frame::SimpleString(s) => s.clone(),
+            _ => {
+                return Frame::Error("ERR invalid pattern type for 'keys' command".into()).encode()
+            }
+        };
+        db::get_keys_matching_pattern(&pattern).await
+    } else {
+        // Shell-expanded case: KEYS * - parser already expanded the glob
+        // Convert the Frame arguments back to strings
+        args.into_iter()
+            .filter_map(|frame| match frame {
+                Frame::BulkString(Some(bs)) => Some(String::from_utf8_lossy(&bs).to_string()),
+                Frame::SimpleString(s) => Some(s),
+                _ => None,
+            })
+            .collect()
     };
 
-    let keys = db::get_keys_matching_pattern(&pattern).await;
     let resp = Frame::Array(Some(
         keys.into_iter()
             .map(|k| Frame::BulkString(Some(k.into_bytes())))
