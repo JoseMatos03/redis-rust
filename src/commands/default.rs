@@ -138,11 +138,22 @@ pub async fn get(args: Vec<Frame>) -> Vec<u8> {
 /// It expects the pattern as a single argument.
 pub async fn keys(args: Vec<Frame>) -> Vec<u8> {
     if args.len() != 1 {
-        return Frame::Error("ERR wrong number of arguments for 'keys'".into()).encode();
+        return Frame::Error("ERR wrong number of arguments for 'keys' command".into()).encode();
     }
+
     let pattern = match &args[0] {
         Frame::BulkString(Some(bs)) => String::from_utf8_lossy(bs).to_string(),
-        _ => return Frame::Error("ERR invalid pattern for 'keys'".into()).encode(),
+        Frame::BulkString(None) => {
+            return Frame::Error("ERR invalid pattern for 'keys' command".into()).encode()
+        }
+        Frame::SimpleString(s) => s.clone(),
+        // Handle the case where * might be parsed as a different frame type
+        Frame::Array(_) => {
+            return Frame::Error("ERR invalid pattern type for 'keys' command".into()).encode()
+        }
+        _ => {
+            return Frame::Error("ERR invalid pattern for 'keys' command".into()).encode();
+        }
     };
 
     let keys = db::get_keys_matching_pattern(&pattern).await;
