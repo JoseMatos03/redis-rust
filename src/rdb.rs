@@ -276,16 +276,156 @@ impl RdbParser {
     }
 }
 
+fn read_string_with_encoding<R: Read>(
+    reader: &mut R,
+    file_bytes: &mut Vec<u8>,
+) -> io::Result<Vec<u8>> {
+    let mut first = [0u8; 1];
+    reader.read_exact(&mut first)?;
+    file_bytes.push(first[0]);
+
+    let enc_type = first[0] >> 6;
+    let len = (first[0] & 0x3F) as u64;
+
+    match enc_type {
+        0 | 1 | 2 => {
+            // Normal length encoding - put the byte back and read normally
+            file_bytes.pop(); // Remove the byte we just added
+            let actual_len = read_rdb_length(reader, file_bytes)?;
+            let mut buf = vec![0u8; actual_len as usize];
+            reader.read_exact(&mut buf)?;
+            file_bytes.extend_from_slice(&buf);
+            Ok(buf)
+        }
+        3 => {
+            // Special encoding
+            match len {
+                0 => {
+                    // 8-bit integer
+                    let mut buf = [0u8; 1];
+                    reader.read_exact(&mut buf)?;
+                    file_bytes.push(buf[0]);
+                    let value = buf[0] as i8;
+                    Ok(value.to_string().into_bytes())
+                }
+                1 => {
+                    // 16-bit integer
+                    let mut buf = [0u8; 2];
+                    reader.read_exact(&mut buf)?;
+                    file_bytes.extend_from_slice(&buf);
+                    let value = i16::from_le_bytes(buf);
+                    Ok(value.to_string().into_bytes())
+                }
+                2 => {
+                    // 32-bit integer
+                    let mut buf = [0u8; 4];
+                    reader.read_exact(&mut buf)?;
+                    file_bytes.extend_from_slice(&buf);
+                    let value = i32::from_le_bytes(buf);
+                    Ok(value.to_string().into_bytes())
+                }
+                3 => {
+                    // LZF compressed string
+                    let compressed_len = read_rdb_length(reader, file_bytes)?;
+                    let uncompressed_len = read_rdb_length(reader, file_bytes)?;
+                    let mut compressed_data = vec![0u8; compressed_len as usize];
+                    reader.read_exact(&mut compressed_data)?;
+                    file_bytes.extend_from_slice(&compressed_data);
+
+                    // Use our fallback LZF decompression implementation
+                    match lzf_decompress_fallback(&compressed_data, uncompressed_len as usize) {
+                        Ok(data) => Ok(data),
+                        Err(_) => Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "Failed to decompress LZF data",
+                        )),
+                    }
+                }
+                _ => Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Unknown special string encoding: {}", len),
+                )),
+            }
+        }
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Invalid string encoding",
+        )),
+    }
+}
+
+// Fallback LZF decompression implementation for compatibility
+fn lzf_decompress_fallback(
+    compressed: &[u8],
+    expected_len: usize,
+) -> Result<Vec<u8>, &'static str> {
+    let mut output = Vec::with_capacity(expected_len);
+    let mut i = 0;
+
+    while i < compressed.len() {
+        let ctrl = compressed[i];
+        i += 1;
+
+        if ctrl < 32 {
+            // Literal run
+            let len = ctrl as usize + 1;
+            if i + len > compressed.len() {
+                return Err("Invalid LZF data: literal run extends beyond input");
+            }
+            output.extend_from_slice(&compressed[i..i + len]);
+            i += len;
+        } else {
+            // Back reference
+            let len = (ctrl >> 5) as usize;
+            let _offset = if len == 7 {
+                // Extended length
+                if i >= compressed.len() {
+                    return Err("Invalid LZF data: missing extended length");
+                }
+                let extra_len = compressed[i] as usize;
+                i += 1;
+                7 + extra_len
+            } else {
+                len
+            };
+
+            if i + 1 >= compressed.len() {
+                return Err("Invalid LZF data: missing offset bytes");
+            }
+
+            let offset_bytes = ((ctrl & 0x1F) as usize) << 8 | compressed[i] as usize;
+            i += 1;
+
+            let back_ref_len = len + 2;
+            let back_ref_offset = offset_bytes + 1;
+
+            if back_ref_offset > output.len() {
+                return Err("Invalid LZF data: back reference beyond output");
+            }
+
+            let start_pos = output.len() - back_ref_offset;
+
+            // Handle overlapping copies
+            for j in 0..back_ref_len {
+                if start_pos + j >= output.len() {
+                    break;
+                }
+                let byte = output[start_pos + j];
+                output.push(byte);
+            }
+        }
+    }
+
+    Ok(output)
+}
+
 // Helper to read a length-prefixed string and update file_bytes
 fn read_length_prefixed_string<R: Read>(
     reader: &mut R,
     file_bytes: &mut Vec<u8>,
 ) -> io::Result<String> {
-    let len = read_rdb_length(reader, file_bytes)?;
-    let mut buf = vec![0u8; len as usize];
-    reader.read_exact(&mut buf)?;
-    file_bytes.extend_from_slice(&buf);
-    Ok(String::from_utf8_lossy(&buf).to_string())
+    let bytes = read_string_with_encoding(reader, file_bytes)?;
+    Ok(String::from_utf8_lossy(&bytes).to_string())
 }
 
 // Helper to read a length-prefixed byte array and update file_bytes
@@ -293,11 +433,7 @@ fn read_length_prefixed_bytes<R: Read>(
     reader: &mut R,
     file_bytes: &mut Vec<u8>,
 ) -> io::Result<Vec<u8>> {
-    let len = read_rdb_length(reader, file_bytes)?;
-    let mut buf = vec![0u8; len as usize];
-    reader.read_exact(&mut buf)?;
-    file_bytes.extend_from_slice(&buf);
-    Ok(buf)
+    read_string_with_encoding(reader, file_bytes)
 }
 
 // Reads the RDB length encoding and updates file_bytes
@@ -306,7 +442,7 @@ fn read_rdb_length<R: Read>(reader: &mut R, file_bytes: &mut Vec<u8>) -> io::Res
     reader.read_exact(&mut first)?;
     file_bytes.push(first[0]);
     let enc_type = first[0] >> 6;
-    let mut len = (first[0] & 0x3F) as u64;
+    let len = (first[0] & 0x3F) as u64;
 
     match enc_type {
         0 => Ok(len), // 6-bit length
@@ -314,8 +450,8 @@ fn read_rdb_length<R: Read>(reader: &mut R, file_bytes: &mut Vec<u8>) -> io::Res
             let mut second = [0u8; 1];
             reader.read_exact(&mut second)?;
             file_bytes.push(second[0]);
-            len = ((len << 8) | second[0] as u64) as u64;
-            Ok(len)
+            let combined = ((len << 8) | second[0] as u64) as u64;
+            Ok(combined)
         }
         2 => {
             let mut buf = [0u8; 4];
@@ -323,10 +459,42 @@ fn read_rdb_length<R: Read>(reader: &mut R, file_bytes: &mut Vec<u8>) -> io::Res
             file_bytes.extend_from_slice(&buf);
             Ok(u32::from_le_bytes(buf) as u64)
         }
-        3 => Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Special RDB encoding not supported",
-        )),
+        3 => {
+            // Special encoding - the lower 6 bits indicate the format
+            match len {
+                0 => {
+                    // 8-bit integer
+                    let mut buf = [0u8; 1];
+                    reader.read_exact(&mut buf)?;
+                    file_bytes.push(buf[0]);
+                    Ok(1) // Return length of 1 byte for the encoded integer
+                }
+                1 => {
+                    // 16-bit integer
+                    let mut buf = [0u8; 2];
+                    reader.read_exact(&mut buf)?;
+                    file_bytes.extend_from_slice(&buf);
+                    Ok(2) // Return length of 2 bytes for the encoded integer
+                }
+                2 => {
+                    // 32-bit integer
+                    let mut buf = [0u8; 4];
+                    reader.read_exact(&mut buf)?;
+                    file_bytes.extend_from_slice(&buf);
+                    Ok(4) // Return length of 4 bytes for the encoded integer
+                }
+                3 => {
+                    // LZF compressed string - read the compressed and uncompressed lengths
+                    let compressed_len = read_rdb_length(reader, file_bytes)?;
+                    let _uncompressed_len = read_rdb_length(reader, file_bytes)?;
+                    Ok(compressed_len)
+                }
+                _ => Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Unknown special RDB encoding: {}", len),
+                )),
+            }
+        }
         _ => Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "Invalid RDB length encoding",
